@@ -3,7 +3,7 @@
 ## New findings you might be interested in...
 
 ## Installation
-This repo relies on another repo called generic-diffusion-feature. Please first follow its installation instructions, and then everything's done!
+This repo relies on another repo called [generic-diffusion-feature](https://github.com/Darkbblue/generic-diffusion-feature). Please first follow its installation instructions, and then everything's done!
 
 ## Training
 For model training, check out `dit-compare/` folder.
