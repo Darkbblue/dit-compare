@@ -1,6 +1,42 @@
 # DiT-Compare
 
 ## New findings you might be interested in...
+Diffusion models contain a backbone network.
+As a neutral network, its forward call generates a lot of intermediate activations.
+They are in shape of $c\times h\times w$, making them compatible as dense vision features, just like DINOv2 features.
+Now, if we evaluate these individual activations' performance against an identical downstream benchmarking protocol, we can obtain a curve: the x-axis is the layer index (from shallow to deep), and the y-axis is the performance, just as shown in the figure below.
+This is known as the *depth profile* of diffusion backbones, and its shape is usually a inverted U: first up, then down.
+Yes, this is common knowledge in the diffusion feature community.
+
+![](figures/main.png)  
+
+So, what's *new*?  
+
+On one hand, people used to believe this inverted U shape results from the signal granularity changing from coarse to fine as we go into deeper layers.
+A certain downstream benchmarking task favors a certain granularity, and that is where the peak is.
+This is a natural take in the U-Net era, since the resolution change forces such a granularity change.
+But this inverted U persists in DiT models, where there's no structual bias to force granularity changes.
+So, there should be a more essential mechanism that governs this depth profile.
+
+On the other hand, the previous knowledge is restricted to a fixed model trained under a certain training recipe.
+For example, DDPM + $\epsilon$-prediction + vanilla loss weighting.
+But we want to know how training recipes affect the depth profile.
+
+Both combined, the training-recipe-determining approach helps us reveal a mechanism that shapes the depth profile.  
+
+What might you gain from this repo?
+1. We provide an aligned training framework, where you can adjust sampling path, prediction target, loss weighting, and more!
+All is done with the other factors fixed and aligned.
+2. We reveal a detailed diffusion backbone mechanism that naturally leads to the inverted-U-shaped depth profile.
+3. We provide the probing tools used in our study. This is not only for reproducing, but also for future research.
+
+![](figures/intro.jpg)  
+
+In case you don't have the time to check [the paper](placeholder), here's a brief overview of the mechanism findings, skipping all the evidence to support our argument.
+The entire backbone can be divided into three phases:
+1. **Preparation phase**. The input to the backbone is an arbitary linear combination of noise $\epsilon$ and clean image $x_0$: $x_t = \alpha(t)x_0 + \beta(t)\epsilon$. During this phase, the model extracts $x_0$ and $\epsilon$ from the mixed input signal and stores them back into subspaces of the main residual.
+2. **Rising phase**. The backbone constructs a semantic, abstract, and high-level representation of the clean image. It's different from the $x_0$ signal in the input. $x_0$ is the RGB- or VAE-space image, while the representation is mainly about semantics. Just like the difference between a DINOv2 feature and the input image. We denote such a representation as $x_s$. This phase is where our new findings are the closest to the previous knowledge, probably.
+3. **Descent phase**. The backbone learns from $x_s$, what it should be predicting semantically. It also learns from the (pre-stored) $x_0$ and $\epsilon$ what form the prediction should take. It combines both information and writes the prediction target into the residual. Since the prediction target also takes the form of a linear combination of $x_0$ and $\epsilon$, it somehow pollutes the $x_s$, lowering its quality/performance. This is why the depth profile goes down in this phase.
 
 ## Installation
 This repo relies on another repo called [generic-diffusion-feature](https://github.com/Darkbblue/generic-diffusion-feature). Please first follow its installation instructions, and then everything's done!
@@ -12,6 +48,7 @@ Here's an example training command:
 python3 dit-compare/train_exp.py --framework fm --target x0 --wn-mode ucenter --vae-scale 0.1 --global-batch-size 256 --num-workers 56 --data-path /path/to/imagenet/root --results-dir /path/to/checkpoints/DiT-compare --vae-path /path/to/sd-vae-ft-ema --ckpt-every 5000
 ```
 The training script will automatically create a folder named after the argparse parameters for each different setting.
+But repeated runs using the same option combination cannot be distinguished. You need to manually rename the existing folder.
 
 OPTIONS:
 - `framework` vp (DDPM) / fm (flow matching)
@@ -23,12 +60,12 @@ OPTIONS:
 - `repa-depth-steps` when this is set, `repa-depth` will be interpreted as a temporal sequence.
 	- e.g., `--repa-depth 12 10 9 8 --repa-depth-steps 0 30 40 50` means starting at layer 12, moving to 10 after training step 30k, and so on.
 - `vae-scale`: set the vae scaling factor manually, default to 0.18215, which is *biased* from Stable Diffusion's training set.
-- `lsc-type` and `lsc-addon`: check our other paper. We wanted to study how LSCs interact with different peak positions, but didn't have the time and aren't likely to have the time in the future. Feel free to give it a try yourself, and share your findings by opening an issue!
-- `--data-space pixel --loss-space u --lam-sampling logit-normal --wn-mode midnoisy`: this is a long story... We've probed the raw JiT model and found that its peak position significantly skews to the right, differing from our $x_0$-model. These options are to reproduce JiT's training recipe. The conclusion is that that skewed peak position is the result of these training recipes, not $x_0$'s inherent property.  
+- `lsc-type` and `lsc-addon`: check our [other paper](https://github.com/Darkbblue/dit-lsc). We wanted to study how LSCs interact with different peak positions, but didn't have the time and aren't likely to have the time in the future. Feel free to give it a try yourself, and share your findings by opening an issue!
+- `--data-space pixel --loss-space u --lam-sampling logit-normal --wn-mode midnoisy`: this is a long story... We've probed the raw JiT model and found that its peak position significantly skews to the right, differing from our $x_0$-model. These options are to reproduce JiT's training recipe. The conclusion is that the skewed peak position is the result of these training recipes, not $x_0$'s inherent property.  
 
 This folder also contains two evaluation tools.  
 
-Generation evaluation. The 2nd step uses a simple script from DiT repo.
+Generation evaluation. The 2nd step uses a simple script from [DiT](https://github.com/facebookresearch/dit) repo.
 ```bash
 python3 dit-compare/sample_exp.py --framework fm --target x0 --wn-mode ucenter --vae-scale 0.1 --ckpt /path/to/checkpoints/DiT-compare/fm-x0-vs0.1-wn-ucenter/checkpoints/0200000.pt --sample-dir /path/to/samples/fm-x0-vs0.1-wn-ucenter/200k --vae-path /path/to/sd-vae-ft-ema --num-fid-samples 10000
 
@@ -128,3 +165,7 @@ This measures the geometry relation between features.
 ```bash
 python3 probing/probe_geometry.py --feature_root /path/to/probing/dit-compare-fm-eps-t300/ --inputs vit-block0-out vit-block1-out vit-block2-out vit-block3-out vit-block4-out vit-block5-out vit-block6-out vit-block7-out vit-block8-out vit-block9-out vit-block10-out vit-block11-out vit-block12-out vit-block13-out vit-block14-out --refs vit-input-with-pos vit-block0-out vit-block1-out vit-block2-out vit-block3-out vit-block4-out vit-block5-out vit-block6-out vit-block7-out vit-block8-out vit-block9-out vit-block10-out vit-block11-out vit-block12-out vit-block13-out --max_images 500 --device cuda --input_layout chw
 ```
+
+## Citation
+When mentioning this study, please call it *DiT-Compare*.
+The citation bib is still in prepration. It's weekend and arXiv volunteers don't work overtime.
