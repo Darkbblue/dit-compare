@@ -1,4 +1,4 @@
-# DiT-Compare
+# DiT-Compare: We Have Been Interpreting Diffusion Transformer Backbone Behaviors Wrong (And This Is How We Improve It...)
 
 ## New findings you might be interested in...
 Diffusion models contain a backbone network.
